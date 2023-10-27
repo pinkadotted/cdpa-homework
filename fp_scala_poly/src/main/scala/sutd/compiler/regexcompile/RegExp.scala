@@ -41,14 +41,40 @@ object RegExp {
 
     // task 1.
     given derivFSA:StateMachine[RE, Char] = new StateMachine[RE,Char] {
-        def step(r:RE, l:Char):Option[RE] = None // TODO: Fix me
-        def isFinal(r:RE):Boolean = false // TODO: Fix me
+        def step(r:RE, l:Char):Option[RE] = r match {
+            case Choice(r1, r2) =>
+                val next1 = step(r1, l)
+                val next2 = step(r2, l)
+                next1.orElse(next2)
+
+            case Seq(r1, r2) if RegExp.eps(r1) =>
+                val next1 = step(r1, l).map(newR1 => Seq(newR1, r2))
+                val next2 = step(r2, l)
+                next1.orElse(next2)
+
+            case Seq(r1, r2) => step(r1, l).map(newR1 => Seq(newR1, r2))
+
+            case Star(r1) => step(r1, l).map(newR1 => Seq(newR1, Star(r1)))
+
+            case Letter(l1) if l1 == l => Some(Epsilon)
+
+            case _ => None
+}
+        def isFinal(r:RE):Boolean = {
+            RegExp.eps(r)
+        }
     }
 
 
-
     // task 2.1
-    def isPhi(r:RE):Boolean = false // TODO: Fix me
+    def isPhi(r:RE):Boolean = r match {
+        case Epsilon => false
+        case Choice(r1, r2) => isPhi(r1) && isPhi(r2)
+        case Seq(r1, r2) => isPhi(r1) || isPhi(r2)
+        case Star(r) => false
+        case Letter(_) => false
+        case Phi => true
+    }
 
     def isEps(r:RE):Boolean = r match { // it is given to you. you don't need to change.
         case Choice(r1,r2) => isEps(r1) && isEps(r2)
@@ -73,6 +99,29 @@ object RegExp {
             case (Letter(_), _) => -1
             // TODO: Fix me. 
             // implement the remaining cases.
+
+            case (_, Letter(_)) => 1
+
+            case (Choice(r1, r2), Choice(r3, r4)) =>
+            val cmp1 = compare(r1, r3)
+            if (cmp1 != 0) cmp1
+            else compare(r2, r4)
+
+            case (Choice(_, _), _) => -1
+            case (_, Choice(_, _)) => 1
+
+            case (Seq(r1, r2), Seq(r3, r4)) =>
+            val cmp1 = compare(r1, r3)
+            if (cmp1 != 0) cmp1
+            else compare(r2, r4)
+
+            case (Seq(_, _), _) => -1
+            case (_, Seq(_, _)) => 1
+
+            case (Star(r1), Star(r2)) =>
+            compare(r1, r2)
+
+            case (Star(_), _) => 1
         }
     }
     // given
@@ -91,7 +140,18 @@ object RegExp {
         case _ => List(normSeq(r))
     }
     // task 2.3
-    def rmdup(rs:List[RE]):List[RE] = rs // TODO: fixme
+    def rmdup(rs:List[RE]):List[RE] = {
+        def removeDuplicates(remaining: List[RE], unique: List[RE]): List[RE] = remaining match {
+            case Nil => unique
+            case head :: tail =>
+            if (unique.contains(head))
+                removeDuplicates(tail, unique)
+            else
+                removeDuplicates(tail, unique :+ head)
+        }
+
+        removeDuplicates(rs, Nil)
+}
     // given
     def mkChoice(rs:List[RE]):RE = rs match {
         case Nil => Phi
@@ -113,9 +173,12 @@ object RegExp {
         case Choice(r1,r2) if (isPhi(r1)) => simp1(r2)
         case Choice(r1,r2) if (isPhi(r2)) => simp1(r1)
         case Choice(r1,r2) => norm(Choice(simp1(r1), simp1(r2)))
-        case Seq(r1,r2)    => Seq(r1,r2) // TODO: fixme
-        case Star(r1)      => Star(r1) // TODO: fixme
-        case _             => r
+        case Seq(r1, r2) if (isPhi(r1) || isPhi(r2)) => Phi
+        case Seq(r1, r2) if (isEps(r1)) => simp1(r2)
+        case Seq(r1, r2) => Seq(simp1(r1), simp1(r2))
+        case Star(r1) if (isEps(r1) || isPhi(r1)) => Epsilon
+        case Star(r1) => Star(simp1(r1))
+        case _ => r
     }
 
     def simp(r:RE):RE = {
@@ -156,7 +219,8 @@ object RegExp {
     def compile(r:RE):StateMachine[Int, Char] = { 
         val allSymbs  = sigma(r)
         val delta     = build(r, allSymbs) // assumption, the first item in the list should contain the init state as the first item
-        val allStates:List[RE] = List()                    // TODO: fixme. Extract all the source states from delta.
+        val allStates: List[RE] = delta.flatMap { case (s, _, d) => List(s, d) }.distinct
+
         val allStatesExceptR   = allStates.filter( x => x != r )
         val table:Map[RE,Int]  = allStatesExceptR.foldLeft(Map(r -> 0))(
             (acc,s) => 
@@ -164,7 +228,7 @@ object RegExp {
                     acc + (s -> (acc.values.max + 1) )
                 } else { acc }
             )
-        val delta_numeric:List[(Int, Char, Int)] = List() // TODO: fixme. convert the states found in delta from RE to Int.
+          val delta_numeric: List[(Int, Char, Int)] = delta.map { case (s, l, d) => (table(s), l, table(d))}
         val delta_numeric_map:Map[(Int, Char), Int] = 
             delta_numeric.foldLeft(Map():Map[(Int, Char), Int])(
                 (acc, t:(Int, Char, Int)) => t match {
